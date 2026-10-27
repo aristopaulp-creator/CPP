@@ -1,0 +1,1286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reader-Writer Problem — Semaphore Visualization</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0e1a;
+            --bg-secondary: #111827;
+            --bg-card: #1a2236;
+            --bg-card-hover: #1e2842;
+            --border-subtle: rgba(255,255,255,0.06);
+            --border-glow: rgba(99,102,241,0.3);
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-indigo: #818cf8;
+            --accent-violet: #a78bfa;
+            --accent-cyan: #22d3ee;
+            --accent-emerald: #34d399;
+            --accent-amber: #fbbf24;
+            --accent-rose: #fb7185;
+            --reader-color: #22d3ee;
+            --reader-glow: rgba(34,211,238,0.25);
+            --writer-color: #fb7185;
+            --writer-glow: rgba(251,113,133,0.25);
+            --sem-locked: #ef4444;
+            --sem-open: #34d399;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Animated background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background:
+                radial-gradient(ellipse 800px 600px at 20% 20%, rgba(99,102,241,0.08), transparent),
+                radial-gradient(ellipse 600px 500px at 80% 80%, rgba(251,113,133,0.06), transparent),
+                radial-gradient(ellipse 500px 400px at 50% 50%, rgba(34,211,238,0.04), transparent);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .app { position: relative; z-index: 1; padding: 24px; max-width: 1440px; margin: 0 auto; }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+        .header h1 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-indigo), var(--accent-violet));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+            margin-bottom: 6px;
+        }
+        .header p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            font-weight: 400;
+        }
+
+        /* Layout */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 320px 1fr 320px;
+            gap: 20px;
+            align-items: start;
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 20px;
+            backdrop-filter: blur(12px);
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+        .card:hover {
+            border-color: var(--border-glow);
+            box-shadow: 0 0 30px rgba(99,102,241,0.06);
+        }
+        .card-title {
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .card-title .dot {
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            background: var(--accent-indigo);
+        }
+
+        /* Code Panel */
+        .code-panel {
+            position: sticky;
+            top: 24px;
+        }
+        .code-block {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.72rem;
+            line-height: 1.75;
+            overflow-y: auto;
+            max-height: 620px;
+            scrollbar-width: thin;
+            scrollbar-color: var(--text-muted) transparent;
+        }
+        .code-line {
+            padding: 2px 8px;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+            white-space: pre;
+            display: flex;
+            gap: 12px;
+        }
+        .code-line.highlight-reader {
+            background: rgba(34, 211, 238, 0.12);
+            box-shadow: inset 3px 0 0 var(--reader-color);
+        }
+        .code-line.highlight-writer {
+            background: rgba(251, 113, 133, 0.12);
+            box-shadow: inset 3px 0 0 var(--writer-color);
+        }
+        .line-num {
+            color: var(--text-muted);
+            user-select: none;
+            min-width: 20px;
+            text-align: right;
+        }
+        .line-content {
+            color: var(--text-secondary);
+        }
+        .code-line.highlight-reader .line-content,
+        .code-line.highlight-writer .line-content {
+            color: var(--text-primary);
+        }
+
+        /* Center visualization area */
+        .viz-area {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* Semaphore display */
+        .semaphores-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+        .sem-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.4s ease;
+        }
+        .sem-card.locked {
+            border-color: rgba(239, 68, 68, 0.3);
+            box-shadow: 0 0 25px rgba(239, 68, 68, 0.08);
+        }
+        .sem-card.open {
+            border-color: rgba(52, 211, 153, 0.3);
+            box-shadow: 0 0 25px rgba(52, 211, 153, 0.08);
+        }
+        .sem-name {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.95rem;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: var(--text-primary);
+        }
+        .sem-value {
+            font-size: 2.8rem;
+            font-weight: 900;
+            transition: all 0.3s ease;
+            line-height: 1;
+            margin-bottom: 8px;
+        }
+        .sem-card.locked .sem-value { color: var(--sem-locked); }
+        .sem-card.open .sem-value { color: var(--sem-open); }
+        .sem-status {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            display: inline-block;
+        }
+        .sem-card.locked .sem-status {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--sem-locked);
+        }
+        .sem-card.open .sem-status {
+            background: rgba(52, 211, 153, 0.15);
+            color: var(--sem-open);
+        }
+
+        /* Thread visualization */
+        .threads-container {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+        }
+        .thread-card {
+            flex: 1;
+            max-width: 220px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.4s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .thread-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            border-radius: 16px 16px 0 0;
+            transition: opacity 0.3s;
+            opacity: 0;
+        }
+        .thread-card.active::before { opacity: 1; }
+        .thread-card.reader-thread::before { background: linear-gradient(90deg, var(--reader-color), var(--accent-indigo)); }
+        .thread-card.writer-thread::before { background: linear-gradient(90deg, var(--writer-color), var(--accent-amber)); }
+
+        .thread-card.active.reader-thread {
+            border-color: rgba(34, 211, 238, 0.3);
+            box-shadow: 0 0 30px var(--reader-glow);
+        }
+        .thread-card.active.writer-thread {
+            border-color: rgba(251, 113, 133, 0.3);
+            box-shadow: 0 0 30px var(--writer-glow);
+        }
+
+        .thread-icon {
+            width: 52px; height: 52px;
+            border-radius: 14px;
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 12px;
+            font-size: 1.5rem;
+            transition: all 0.3s;
+        }
+        .reader-thread .thread-icon {
+            background: rgba(34, 211, 238, 0.1);
+            border: 1px solid rgba(34, 211, 238, 0.2);
+        }
+        .writer-thread .thread-icon {
+            background: rgba(251, 113, 133, 0.1);
+            border: 1px solid rgba(251, 113, 133, 0.2);
+        }
+        .thread-name {
+            font-weight: 700;
+            font-size: 0.95rem;
+            margin-bottom: 4px;
+        }
+        .reader-thread .thread-name { color: var(--reader-color); }
+        .writer-thread .thread-name { color: var(--writer-color); }
+        .thread-status {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            font-weight: 500;
+            min-height: 34px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .thread-card.active .thread-status { color: var(--text-secondary); }
+
+        /* Shared Data */
+        .shared-data-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 24px;
+            text-align: center;
+            transition: all 0.4s ease;
+        }
+        .shared-data-card.reading {
+            border-color: rgba(34, 211, 238, 0.35);
+            box-shadow: 0 0 40px var(--reader-glow);
+        }
+        .shared-data-card.writing {
+            border-color: rgba(251, 113, 133, 0.35);
+            box-shadow: 0 0 40px var(--writer-glow);
+        }
+        .data-label {
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+        .data-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 3.5rem;
+            font-weight: 900;
+            color: var(--text-primary);
+            transition: all 0.3s;
+            line-height: 1.1;
+        }
+        .shared-data-card.reading .data-value { color: var(--reader-color); }
+        .shared-data-card.writing .data-value { color: var(--writer-color); }
+        .data-action {
+            font-size: 0.8rem;
+            margin-top: 8px;
+            color: var(--text-muted);
+            min-height: 20px;
+            font-weight: 500;
+        }
+        .data-action.reading { color: var(--reader-color); }
+        .data-action.writing { color: var(--writer-color); }
+
+        /* Variable panel (right) */
+        .var-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        .var-row:last-child { border-bottom: none; }
+        .var-name {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82rem;
+            color: var(--accent-violet);
+        }
+        .var-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            background: rgba(255,255,255,0.05);
+            padding: 4px 12px;
+            border-radius: 6px;
+            min-width: 36px;
+            text-align: center;
+            transition: all 0.3s;
+        }
+        .var-value.changed {
+            background: rgba(251, 191, 36, 0.15);
+            color: var(--accent-amber);
+            transform: scale(1.1);
+        }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+        .btn {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.82rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 10px;
+            padding: 10px 22px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn:active { transform: scale(0.96); }
+        .btn-primary {
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            color: white;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+        }
+        .btn-primary:hover {
+            box-shadow: 0 6px 25px rgba(99, 102, 241, 0.45);
+            transform: translateY(-1px);
+        }
+        .btn-secondary {
+            background: rgba(255,255,255,0.06);
+            color: var(--text-secondary);
+            border: 1px solid var(--border-subtle);
+        }
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.1);
+            color: var(--text-primary);
+        }
+        .btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        /* Speed control */
+        .speed-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 0;
+        }
+        .speed-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .speed-slider {
+            -webkit-appearance: none;
+            width: 120px;
+            height: 4px;
+            border-radius: 4px;
+            background: rgba(255,255,255,0.1);
+            outline: none;
+        }
+        .speed-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px; height: 16px;
+            border-radius: 50%;
+            background: var(--accent-indigo);
+            cursor: pointer;
+            box-shadow: 0 0 8px rgba(99,102,241,0.4);
+        }
+
+        /* Event log */
+        .log-panel {
+            position: sticky;
+            top: 24px;
+        }
+        .log-entries {
+            max-height: 500px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--text-muted) transparent;
+        }
+        .log-entry {
+            padding: 8px 10px;
+            border-radius: 8px;
+            margin-bottom: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            animation: logSlideIn 0.3s ease;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid transparent;
+        }
+        .log-entry.reader-log { border-color: rgba(34,211,238,0.1); }
+        .log-entry.writer-log { border-color: rgba(251,113,133,0.1); }
+        .log-entry.system-log { border-color: rgba(99,102,241,0.1); }
+        .log-icon {
+            flex-shrink: 0;
+            width: 18px; height: 18px;
+            border-radius: 5px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.6rem;
+        }
+        .reader-log .log-icon { background: rgba(34,211,238,0.15); color: var(--reader-color); }
+        .writer-log .log-icon { background: rgba(251,113,133,0.15); color: var(--writer-color); }
+        .system-log .log-icon { background: rgba(99,102,241,0.15); color: var(--accent-indigo); }
+        .log-text { color: var(--text-secondary); line-height: 1.4; }
+
+        @keyframes logSlideIn {
+            from { opacity: 0; transform: translateY(-6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Step indicator */
+        .step-indicator {
+            text-align: center;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        .step-indicator span {
+            color: var(--accent-indigo);
+        }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+            .code-panel, .log-panel {
+                position: static;
+            }
+        }
+
+        /* Pulse animation for active elements */
+        @keyframes pulse-reader {
+            0%, 100% { box-shadow: 0 0 20px var(--reader-glow); }
+            50% { box-shadow: 0 0 40px var(--reader-glow); }
+        }
+        @keyframes pulse-writer {
+            0%, 100% { box-shadow: 0 0 20px var(--writer-glow); }
+            50% { box-shadow: 0 0 40px var(--writer-glow); }
+        }
+        .thread-card.active.reader-thread { animation: pulse-reader 2s ease-in-out infinite; }
+        .thread-card.active.writer-thread { animation: pulse-writer 2s ease-in-out infinite; }
+
+        /* Data flow arrows */
+        .flow-section {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 6px 0;
+        }
+        .flow-arrow {
+            font-size: 1.2rem;
+            color: var(--text-muted);
+            transition: all 0.3s;
+            opacity: 0.3;
+        }
+        .flow-arrow.active-read { color: var(--reader-color); opacity: 1; }
+        .flow-arrow.active-write { color: var(--writer-color); opacity: 1; }
+
+        /* Explanation tooltip */
+        .explanation {
+            background: rgba(99,102,241,0.08);
+            border: 1px solid rgba(99,102,241,0.15);
+            border-radius: 10px;
+            padding: 12px 16px;
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+            min-height: 60px;
+            display: flex;
+            align-items: center;
+            transition: all 0.3s;
+        }
+        .explanation strong { color: var(--accent-indigo); }
+        .explanation code {
+            font-family: 'JetBrains Mono', monospace;
+            background: rgba(255,255,255,0.08);
+            padding: 1px 5px;
+            border-radius: 4px;
+            font-size: 0.78rem;
+            color: var(--accent-amber);
+        }
+    </style>
+</head>
+<body>
+<div class="app">
+    <div class="header">
+        <h1>Reader-Writer Problem</h1>
+        <p>Semaphore-based synchronization — interactive step-by-step visualization</p>
+    </div>
+
+    <!-- Controls -->
+    <div style="max-width: 700px; margin: 0 auto 24px;">
+        <div class="controls">
+            <button class="btn btn-secondary" id="btnPrev" onclick="prevStep()" disabled>
+                ◀ Previous
+            </button>
+            <button class="btn btn-primary" id="btnNext" onclick="nextStep()">
+                ▶ Next Step
+            </button>
+            <button class="btn btn-primary" id="btnPlay" onclick="toggleAutoPlay()">
+                ⏵ Auto Play
+            </button>
+            <button class="btn btn-secondary" id="btnReset" onclick="resetSimulation()">
+                ↺ Reset
+            </button>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+            <div class="step-indicator">
+                Step <span id="stepNum">0</span> / <span id="totalSteps">0</span>
+            </div>
+            <div class="speed-control">
+                <span class="speed-label">Speed</span>
+                <input type="range" class="speed-slider" id="speedSlider" min="200" max="2000" value="1000" step="100">
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Grid -->
+    <div class="main-grid">
+        <!-- Left: Source Code -->
+        <div class="card code-panel">
+            <div class="card-title"><span class="dot"></span> Source Code</div>
+            <div class="code-block" id="codeBlock"></div>
+        </div>
+
+        <!-- Center: Visualization -->
+        <div class="viz-area">
+            <!-- Explanation -->
+            <div class="explanation" id="explanation">
+                Press <strong>Next Step</strong> or <strong>Auto Play</strong> to begin the simulation of the Reader-Writer problem using POSIX semaphores.
+            </div>
+
+            <!-- Semaphores -->
+            <div class="semaphores-row">
+                <div class="sem-card open" id="semMutex">
+                    <div class="sem-name">mutex</div>
+                    <div class="sem-value" id="mutexValue">1</div>
+                    <span class="sem-status" id="mutexStatus">OPEN</span>
+                </div>
+                <div class="sem-card open" id="semWrt">
+                    <div class="sem-name">wrt</div>
+                    <div class="sem-value" id="wrtValue">1</div>
+                    <span class="sem-status" id="wrtStatus">OPEN</span>
+                </div>
+            </div>
+
+            <!-- Threads -->
+            <div class="threads-container">
+                <div class="thread-card reader-thread" id="threadR1">
+                    <div class="thread-icon">📖</div>
+                    <div class="thread-name">Reader 1</div>
+                    <div class="thread-status" id="statusR1">Idle</div>
+                </div>
+                <div class="thread-card reader-thread" id="threadR2">
+                    <div class="thread-icon">📖</div>
+                    <div class="thread-name">Reader 2</div>
+                    <div class="thread-status" id="statusR2">Idle</div>
+                </div>
+                <div class="thread-card writer-thread" id="threadW1">
+                    <div class="thread-icon">✏️</div>
+                    <div class="thread-name">Writer 1</div>
+                    <div class="thread-status" id="statusW1">Idle</div>
+                </div>
+            </div>
+
+            <!-- Flow -->
+            <div class="flow-section">
+                <span class="flow-arrow" id="arrowR">⬇ READ</span>
+                <span class="flow-arrow" id="arrowW">⬇ WRITE</span>
+            </div>
+
+            <!-- Shared Data -->
+            <div class="shared-data-card" id="sharedDataCard">
+                <div class="data-label">Shared Data</div>
+                <div class="data-value" id="sharedDataValue">10</div>
+                <div class="data-action" id="dataAction">&nbsp;</div>
+            </div>
+        </div>
+
+        <!-- Right: Variables + Log -->
+        <div style="display:flex; flex-direction:column; gap:20px;">
+            <div class="card">
+                <div class="card-title"><span class="dot"></span> Variables</div>
+                <div class="var-row">
+                    <span class="var-name">read_count</span>
+                    <span class="var-value" id="varReadCount">0</span>
+                </div>
+                <div class="var-row">
+                    <span class="var-name">shared_data</span>
+                    <span class="var-value" id="varSharedData">10</span>
+                </div>
+                <div class="var-row">
+                    <span class="var-name">mutex</span>
+                    <span class="var-value" id="varMutex">1</span>
+                </div>
+                <div class="var-row">
+                    <span class="var-name">wrt</span>
+                    <span class="var-value" id="varWrt">1</span>
+                </div>
+            </div>
+            <div class="card log-panel">
+                <div class="card-title"><span class="dot"></span> Event Log</div>
+                <div class="log-entries" id="logEntries"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Source code lines
+const sourceCode = [
+    ['#include <stdio.h>', ''],
+    ['#include <pthread.h>', ''],
+    ['#include <semaphore.h>', ''],
+    ['', ''],
+    ['sem_t mutex, wrt;', ''],
+    ['int read_count = 0;', ''],
+    ['int shared_data = 10;', ''],
+    ['', ''],
+    ['void *reader(void *arg)', ''],
+    ['{', ''],
+    ['    sem_wait(&mutex);', 'r'],
+    ['    read_count++;', 'r'],
+    ['', ''],
+    ['    if (read_count == 1)', 'r'],
+    ['        sem_wait(&wrt);', 'r'],
+    ['', ''],
+    ['    sem_post(&mutex);', 'r'],
+    ['', ''],
+    ['    printf("Reader reading: %d\\n", shared_data);', 'r'],
+    ['', ''],
+    ['    sem_wait(&mutex);', 'r'],
+    ['    read_count--;', 'r'],
+    ['', ''],
+    ['    if (read_count == 0)', 'r'],
+    ['        sem_post(&wrt);', 'r'],
+    ['', ''],
+    ['    sem_post(&mutex);', 'r'],
+    ['', ''],
+    ['    return NULL;', 'r'],
+    ['}', ''],
+    ['', ''],
+    ['void *writer(void *arg)', ''],
+    ['{', ''],
+    ['    sem_wait(&wrt);', 'w'],
+    ['', ''],
+    ['    shared_data++;', 'w'],
+    ['    printf("Writer writing: %d\\n", shared_data);', 'w'],
+    ['', ''],
+    ['    sem_post(&wrt);', 'w'],
+    ['', ''],
+    ['    return NULL;', 'w'],
+    ['}', ''],
+    ['', ''],
+    ['int main()', ''],
+    ['{', ''],
+    ['    pthread_t r1, r2, w1;', ''],
+    ['', ''],
+    ['    sem_init(&mutex, 0, 1);', ''],
+    ['    sem_init(&wrt, 0, 1);', ''],
+    ['', ''],
+    ['    pthread_create(&r1, NULL, reader, NULL);', ''],
+    ['    pthread_create(&r2, NULL, reader, NULL);', ''],
+    ['    pthread_create(&w1, NULL, writer, NULL);', ''],
+    ['', ''],
+    ['    pthread_join(r1, NULL);', ''],
+    ['    pthread_join(r2, NULL);', ''],
+    ['    pthread_join(w1, NULL);', ''],
+    ['', ''],
+    ['    sem_destroy(&mutex);', ''],
+    ['    sem_destroy(&wrt);', ''],
+    ['', ''],
+    ['    return 0;', ''],
+    ['}', ''],
+];
+
+// Simulation steps — one possible interleaving: R1 enters, R2 enters, both read, R2 exits, R1 exits, W1 writes
+const steps = [
+    // INIT
+    {
+        highlight: [48, 49],
+        type: 'system',
+        thread: null,
+        activeThreads: [],
+        mutex: 1, wrt: 1, readCount: 0, sharedData: 10,
+        statuses: { R1: 'Created', R2: 'Created', W1: 'Created' },
+        dataState: '',
+        dataAction: '',
+        explain: '<strong>Initialization:</strong> Semaphores <code>mutex</code> and <code>wrt</code> are initialized to <code>1</code>. Three threads are about to be created.',
+        log: { type: 'system', text: 'Semaphores initialized: mutex=1, wrt=1' },
+    },
+    {
+        highlight: [51, 52, 53],
+        type: 'system',
+        thread: null,
+        activeThreads: [],
+        mutex: 1, wrt: 1, readCount: 0, sharedData: 10,
+        statuses: { R1: 'Created', R2: 'Created', W1: 'Created' },
+        dataState: '',
+        dataAction: '',
+        explain: '<strong>Thread creation:</strong> <code>pthread_create</code> spawns Reader 1, Reader 2, and Writer 1. They begin executing concurrently.',
+        log: { type: 'system', text: 'Threads R1, R2, W1 created via pthread_create' },
+    },
+
+    // Reader 1 enters
+    {
+        highlight: [11],
+        type: 'reader',
+        thread: 'R1',
+        activeThreads: ['R1'],
+        mutex: 0, wrt: 1, readCount: 0, sharedData: 10,
+        statuses: { R1: 'sem_wait(&mutex)', R2: 'Waiting…', W1: 'Waiting…' },
+        dataState: '',
+        dataAction: '',
+        explain: '<strong>Reader 1</strong> calls <code>sem_wait(&mutex)</code>. Since mutex=1, it decrements to 0 and enters the critical section to update <code>read_count</code>.',
+        log: { type: 'reader', text: 'R1: sem_wait(&mutex) → acquired (1→0)' },
+    },
+    {
+        highlight: [12],
+        type: 'reader',
+        thread: 'R1',
+        activeThreads: ['R1'],
+        mutex: 0, wrt: 1, readCount: 1, sharedData: 10,
+        statuses: { R1: 'read_count++ → 1', R2: 'Waiting…', W1: 'Waiting…' },
+        dataState: '',
+        dataAction: '',
+        explain: '<strong>Reader 1</strong> increments <code>read_count</code> from 0 to 1. This is the first reader.',
+        log: { type: 'reader', text: 'R1: read_count++ → 1 (first reader)' },
+        changedVar: 'readCount',
+    },
+    {
+        highlight: [14, 15],
+        type: 'reader',
+        thread: 'R1',
+        activeThreads: ['R1'],
+        mutex: 0, wrt: 0, readCount: 1, sharedData: 10,
+        statuses: { R1: 'sem_wait(&wrt) — lock writers', R2: 'Waiting…', W1: 'Waiting…' },
+        dataState: '',
+        dataAction: '',
+        explain: '<strong>Reader 1</strong>: Since <code>read_count == 1</code> (first reader), it calls <code>sem_wait(&wrt)</code> to lock out writers. wrt goes from 1→0.',
+        log: { type: 'reader', text: 'R1: First reader → sem_wait(&wrt) acquired (1→0)' },
+    },
+    {
+        highlight: [17],
+        type: 'reader',
+        thread: 'R1',
+        activeThreads: ['R1'],
+        mutex: 1, wrt: 0, readCount: 1, sharedData: 10,
+        statuses: { R1: 'sem_post(&mutex)', R2: 'Waiting…', W1: 'Waiting…' },
+        dataState: '',
+        dataAction: '',
+        explain: '<strong>Reader 1</strong> calls <code>sem_post(&mutex)</code>, releasing the mutex (0→1) so other readers can enter.',
+        log: { type: 'reader', text: 'R1: sem_post(&mutex) → released (0→1)' },
+    },
+    {
+        highlight: [19],
+        type: 'reader',
+        thread: 'R1',
+        activeThreads: ['R1'],
+        mutex: 1, wrt: 0, readCount: 1, sharedData: 10,
+        statuses: { R1: '📖 Reading data…', R2: 'Waiting…', W1: 'Blocked on wrt' },
+        dataState: 'reading',
+        dataAction: 'Reader 1 is reading → 10',
+        explain: '<strong>Reader 1</strong> is now reading <code>shared_data = 10</code>. The writer is blocked because <code>wrt = 0</code>.',
+        log: { type: 'reader', text: 'R1: Reading shared_data = 10' },
+    },
+
+    // Reader 2 enters (concurrent with R1 reading)
+    {
+        highlight: [11],
+        type: 'reader',
+        thread: 'R2',
+        activeThreads: ['R1', 'R2'],
+        mutex: 0, wrt: 0, readCount: 1, sharedData: 10,
+        statuses: { R1: '📖 Reading…', R2: 'sem_wait(&mutex)', W1: 'Blocked on wrt' },
+        dataState: 'reading',
+        dataAction: 'Reader 1 still reading',
+        explain: '<strong>Reader 2</strong> calls <code>sem_wait(&mutex)</code>. mutex goes 1→0. R2 enters the critical section while R1 is still reading.',
+        log: { type: 'reader', text: 'R2: sem_wait(&mutex) → acquired (1→0)' },
+    },
+    {
+        highlight: [12],
+        type: 'reader',
+        thread: 'R2',
+        activeThreads: ['R1', 'R2'],
+        mutex: 0, wrt: 0, readCount: 2, sharedData: 10,
+        statuses: { R1: '📖 Reading…', R2: 'read_count++ → 2', W1: 'Blocked on wrt' },
+        dataState: 'reading',
+        dataAction: 'Reader 1 still reading',
+        explain: '<strong>Reader 2</strong> increments <code>read_count</code> from 1 to 2. Since read_count ≠ 1, it does NOT call <code>sem_wait(&wrt)</code> — writers are already locked.',
+        log: { type: 'reader', text: 'R2: read_count++ → 2 (not first, skip wrt lock)' },
+        changedVar: 'readCount',
+    },
+    {
+        highlight: [14, 17],
+        type: 'reader',
+        thread: 'R2',
+        activeThreads: ['R1', 'R2'],
+        mutex: 1, wrt: 0, readCount: 2, sharedData: 10,
+        statuses: { R1: '📖 Reading…', R2: 'sem_post(&mutex)', W1: 'Blocked on wrt' },
+        dataState: 'reading',
+        dataAction: 'Readers active',
+        explain: '<strong>Reader 2</strong>: <code>read_count=2 ≠ 1</code> so skip wrt lock. Releases mutex with <code>sem_post(&mutex)</code> (0→1). <em>Multiple readers can read simultaneously!</em>',
+        log: { type: 'reader', text: 'R2: sem_post(&mutex) → released (0→1)' },
+    },
+    {
+        highlight: [19],
+        type: 'reader',
+        thread: 'R2',
+        activeThreads: ['R1', 'R2'],
+        mutex: 1, wrt: 0, readCount: 2, sharedData: 10,
+        statuses: { R1: '📖 Reading…', R2: '📖 Reading data…', W1: 'Blocked on wrt' },
+        dataState: 'reading',
+        dataAction: '⟵ R1 & R2 both reading → 10',
+        explain: '<strong>Both Readers</strong> are reading <code>shared_data = 10</code> concurrently! This is the key benefit — <em>multiple readers can read at the same time</em> without mutual exclusion.',
+        log: { type: 'reader', text: 'R2: Reading shared_data = 10 (concurrent with R1)' },
+    },
+
+    // Reader 2 exits
+    {
+        highlight: [21],
+        type: 'reader',
+        thread: 'R2',
+        activeThreads: ['R1', 'R2'],
+        mutex: 0, wrt: 0, readCount: 2, sharedData: 10,
+        statuses: { R1: '📖 Reading…', R2: 'sem_wait(&mutex)', W1: 'Blocked on wrt' },
+        dataState: 'reading',
+        dataAction: 'R1 still reading',
+        explain: '<strong>Reader 2</strong> finishes reading and calls <code>sem_wait(&mutex)</code> to enter the exit critical section. mutex: 1→0.',
+        log: { type: 'reader', text: 'R2: sem_wait(&mutex) → acquired (1→0) [exit section]' },
+    },
+    {
+        highlight: [22],
+        type: 'reader',
+        thread: 'R2',
+        activeThreads: ['R1', 'R2'],
+        mutex: 0, wrt: 0, readCount: 1, sharedData: 10,
+        statuses: { R1: '📖 Reading…', R2: 'read_count-- → 1', W1: 'Blocked on wrt' },
+        dataState: 'reading',
+        dataAction: 'R1 still reading',
+        explain: '<strong>Reader 2</strong> decrements <code>read_count</code> from 2 to 1. Since read_count ≠ 0, there are still active readers — writer stays blocked.',
+        log: { type: 'reader', text: 'R2: read_count-- → 1 (readers remain, keep wrt locked)' },
+        changedVar: 'readCount',
+    },
+    {
+        highlight: [24, 27],
+        type: 'reader',
+        thread: 'R2',
+        activeThreads: ['R1'],
+        mutex: 1, wrt: 0, readCount: 1, sharedData: 10,
+        statuses: { R1: '📖 Reading…', R2: 'Done ✓', W1: 'Blocked on wrt' },
+        dataState: 'reading',
+        dataAction: 'R1 still reading',
+        explain: '<strong>Reader 2</strong>: <code>read_count=1 ≠ 0</code>, so does NOT release wrt. Calls <code>sem_post(&mutex)</code> (0→1) and exits. R1 is still reading.',
+        log: { type: 'reader', text: 'R2: Done. sem_post(&mutex). read_count=1, wrt stays locked.' },
+    },
+
+    // Reader 1 exits
+    {
+        highlight: [21],
+        type: 'reader',
+        thread: 'R1',
+        activeThreads: ['R1'],
+        mutex: 0, wrt: 0, readCount: 1, sharedData: 10,
+        statuses: { R1: 'sem_wait(&mutex)', R2: 'Done ✓', W1: 'Blocked on wrt' },
+        dataState: '',
+        dataAction: '',
+        explain: '<strong>Reader 1</strong> finishes reading and calls <code>sem_wait(&mutex)</code> to enter exit section. mutex: 1→0.',
+        log: { type: 'reader', text: 'R1: sem_wait(&mutex) → acquired (1→0) [exit section]' },
+    },
+    {
+        highlight: [22],
+        type: 'reader',
+        thread: 'R1',
+        activeThreads: ['R1'],
+        mutex: 0, wrt: 0, readCount: 0, sharedData: 10,
+        statuses: { R1: 'read_count-- → 0', R2: 'Done ✓', W1: 'Blocked on wrt' },
+        dataState: '',
+        dataAction: '',
+        explain: '<strong>Reader 1</strong> decrements <code>read_count</code> from 1 to 0. This is the <em>last reader</em>!',
+        log: { type: 'reader', text: 'R1: read_count-- → 0 (LAST reader!)' },
+        changedVar: 'readCount',
+    },
+    {
+        highlight: [24, 25],
+        type: 'reader',
+        thread: 'R1',
+        activeThreads: ['R1'],
+        mutex: 0, wrt: 1, readCount: 0, sharedData: 10,
+        statuses: { R1: 'sem_post(&wrt) — unlock writers!', R2: 'Done ✓', W1: 'Waking up…' },
+        dataState: '',
+        dataAction: '',
+        explain: '<strong>Reader 1</strong>: <code>read_count == 0</code> → last reader! Calls <code>sem_post(&wrt)</code> to release the writer lock. wrt: 0→1. <em>The writer can now proceed!</em>',
+        log: { type: 'reader', text: 'R1: LAST reader → sem_post(&wrt) (0→1) Writer unblocked!' },
+    },
+    {
+        highlight: [27],
+        type: 'reader',
+        thread: 'R1',
+        activeThreads: [],
+        mutex: 1, wrt: 1, readCount: 0, sharedData: 10,
+        statuses: { R1: 'Done ✓', R2: 'Done ✓', W1: 'Ready to write' },
+        dataState: '',
+        dataAction: '',
+        explain: '<strong>Reader 1</strong> calls <code>sem_post(&mutex)</code> (0→1) and exits. Both readers are done. The writer is now free to proceed.',
+        log: { type: 'reader', text: 'R1: Done. sem_post(&mutex). All readers finished.' },
+    },
+
+    // Writer enters
+    {
+        highlight: [34],
+        type: 'writer',
+        thread: 'W1',
+        activeThreads: ['W1'],
+        mutex: 1, wrt: 0, readCount: 0, sharedData: 10,
+        statuses: { R1: 'Done ✓', R2: 'Done ✓', W1: 'sem_wait(&wrt)' },
+        dataState: '',
+        dataAction: '',
+        explain: '<strong>Writer 1</strong> calls <code>sem_wait(&wrt)</code>. Since wrt=1 (released by last reader), it acquires the lock. wrt: 1→0. <em>Writer has exclusive access.</em>',
+        log: { type: 'writer', text: 'W1: sem_wait(&wrt) → acquired (1→0) — exclusive access!' },
+    },
+    {
+        highlight: [36],
+        type: 'writer',
+        thread: 'W1',
+        activeThreads: ['W1'],
+        mutex: 1, wrt: 0, readCount: 0, sharedData: 11,
+        statuses: { R1: 'Done ✓', R2: 'Done ✓', W1: '✏️ Writing data…' },
+        dataState: 'writing',
+        dataAction: 'Writer 1 is writing → 11',
+        explain: '<strong>Writer 1</strong> modifies <code>shared_data++</code>, changing it from 10 to <strong>11</strong>. No readers or other writers can access the data right now.',
+        log: { type: 'writer', text: 'W1: shared_data++ → 11 (exclusive write)' },
+        changedVar: 'sharedData',
+    },
+    {
+        highlight: [37],
+        type: 'writer',
+        thread: 'W1',
+        activeThreads: ['W1'],
+        mutex: 1, wrt: 0, readCount: 0, sharedData: 11,
+        statuses: { R1: 'Done ✓', R2: 'Done ✓', W1: 'printf → "Writer writing: 11"' },
+        dataState: 'writing',
+        dataAction: 'Output: "Writer is writing data: 11"',
+        explain: '<strong>Writer 1</strong> prints the updated value: <code>Writer is writing data: 11</code>.',
+        log: { type: 'writer', text: 'W1: printf("Writer is writing data: 11")' },
+    },
+    {
+        highlight: [39],
+        type: 'writer',
+        thread: 'W1',
+        activeThreads: ['W1'],
+        mutex: 1, wrt: 1, readCount: 0, sharedData: 11,
+        statuses: { R1: 'Done ✓', R2: 'Done ✓', W1: 'sem_post(&wrt)' },
+        dataState: '',
+        dataAction: '',
+        explain: '<strong>Writer 1</strong> calls <code>sem_post(&wrt)</code> to release the write lock. wrt: 0→1. Other writers or readers could now proceed.',
+        log: { type: 'writer', text: 'W1: sem_post(&wrt) → released (0→1)' },
+    },
+    {
+        highlight: [55, 56, 57],
+        type: 'system',
+        thread: null,
+        activeThreads: [],
+        mutex: 1, wrt: 1, readCount: 0, sharedData: 11,
+        statuses: { R1: 'Joined ✓', R2: 'Joined ✓', W1: 'Joined ✓' },
+        dataState: '',
+        dataAction: '',
+        explain: '<strong>All threads completed!</strong> <code>pthread_join</code> reaps all threads. Final <code>shared_data = 11</code>. The semaphores ensured: multiple readers read concurrently, but the writer had exclusive access.',
+        log: { type: 'system', text: 'All threads joined. Final shared_data = 11. ✓' },
+    },
+    {
+        highlight: [59, 60, 62],
+        type: 'system',
+        thread: null,
+        activeThreads: [],
+        mutex: 1, wrt: 1, readCount: 0, sharedData: 11,
+        statuses: { R1: 'Joined ✓', R2: 'Joined ✓', W1: 'Joined ✓' },
+        dataState: '',
+        dataAction: '',
+        explain: '<strong>Cleanup:</strong> Semaphores destroyed with <code>sem_destroy</code>. Program returns 0. <em>Simulation complete!</em>',
+        log: { type: 'system', text: 'Semaphores destroyed. Program exit(0). Done!' },
+    },
+];
+
+let currentStep = -1;
+let autoPlayInterval = null;
+
+// Render code
+function renderCode() {
+    const block = document.getElementById('codeBlock');
+    block.innerHTML = sourceCode.map((line, i) => {
+        const num = i + 1;
+        return `<div class="code-line" id="codeLine${num}"><span class="line-num">${num}</span><span class="line-content">${escapeHtml(line[0])}</span></div>`;
+    }).join('');
+}
+
+function escapeHtml(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function applyStep(step) {
+    // Clear highlights
+    document.querySelectorAll('.code-line').forEach(el => {
+        el.classList.remove('highlight-reader', 'highlight-writer');
+    });
+
+    // Highlight lines
+    if (step.highlight) {
+        step.highlight.forEach(lineNum => {
+            const el = document.getElementById(`codeLine${lineNum}`);
+            if (el) {
+                const cls = step.type === 'writer' ? 'highlight-writer' : step.type === 'reader' ? 'highlight-reader' : 'highlight-reader';
+                el.classList.add(cls);
+                el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        });
+    }
+
+    // Semaphores
+    updateSem('semMutex', 'mutexValue', 'mutexStatus', step.mutex);
+    updateSem('semWrt', 'wrtValue', 'wrtStatus', step.wrt);
+
+    // Thread states
+    ['R1', 'R2', 'W1'].forEach(t => {
+        const card = document.getElementById(`thread${t}`);
+        card.classList.toggle('active', step.activeThreads.includes(t));
+        document.getElementById(`status${t}`).textContent = step.statuses[t];
+    });
+
+    // Shared data
+    const sdCard = document.getElementById('sharedDataCard');
+    sdCard.className = 'shared-data-card ' + step.dataState;
+    document.getElementById('sharedDataValue').textContent = step.sharedData;
+    const actionEl = document.getElementById('dataAction');
+    actionEl.textContent = step.dataAction || '\u00A0';
+    actionEl.className = 'data-action ' + step.dataState;
+
+    // Flow arrows
+    document.getElementById('arrowR').className = 'flow-arrow' + (step.dataState === 'reading' ? ' active-read' : '');
+    document.getElementById('arrowW').className = 'flow-arrow' + (step.dataState === 'writing' ? ' active-write' : '');
+
+    // Variables
+    updateVar('varReadCount', step.readCount, step.changedVar === 'readCount');
+    updateVar('varSharedData', step.sharedData, step.changedVar === 'sharedData');
+    updateVar('varMutex', step.mutex, false);
+    updateVar('varWrt', step.wrt, false);
+
+    // Explanation
+    document.getElementById('explanation').innerHTML = step.explain;
+
+    // Log
+    if (step.log) {
+        addLog(step.log.type, step.log.text);
+    }
+
+    // Step counter
+    document.getElementById('stepNum').textContent = currentStep + 1;
+}
+
+function updateSem(cardId, valId, statusId, value) {
+    const card = document.getElementById(cardId);
+    card.className = 'sem-card ' + (value === 0 ? 'locked' : 'open');
+    document.getElementById(valId).textContent = value;
+    document.getElementById(statusId).textContent = value === 0 ? 'LOCKED' : 'OPEN';
+}
+
+function updateVar(id, value, changed) {
+    const el = document.getElementById(id);
+    el.textContent = value;
+    el.classList.toggle('changed', changed);
+    if (changed) {
+        setTimeout(() => el.classList.remove('changed'), 800);
+    }
+}
+
+function addLog(type, text) {
+    const container = document.getElementById('logEntries');
+    const icons = { reader: '📖', writer: '✏️', system: '⚙️' };
+    const entry = document.createElement('div');
+    entry.className = `log-entry ${type}-log`;
+    entry.innerHTML = `<span class="log-icon">${icons[type]}</span><span class="log-text">${text}</span>`;
+    container.prepend(entry);
+}
+
+function nextStep() {
+    if (currentStep >= steps.length - 1) {
+        stopAutoPlay();
+        return;
+    }
+    currentStep++;
+    applyStep(steps[currentStep]);
+    document.getElementById('btnPrev').disabled = false;
+    if (currentStep >= steps.length - 1) {
+        document.getElementById('btnNext').disabled = true;
+        stopAutoPlay();
+    }
+}
+
+function prevStep() {
+    if (currentStep <= 0) {
+        if (currentStep === 0) {
+            currentStep = -1;
+            resetSimulation();
+        }
+        return;
+    }
+    // Remove the top log entry from the current step
+    const logEntries = document.getElementById('logEntries');
+    if (logEntries.firstChild) logEntries.removeChild(logEntries.firstChild);
+    currentStep--;
+    applyStep(steps[currentStep]);
+    document.getElementById('btnNext').disabled = false;
+    document.getElementById('btnPrev').disabled = (currentStep < 0);
+}
+
+function toggleAutoPlay() {
+    if (autoPlayInterval) {
+        stopAutoPlay();
+    } else {
+        const speed = parseInt(document.getElementById('speedSlider').value);
+        document.getElementById('btnPlay').innerHTML = '⏸ Pause';
+        autoPlayInterval = setInterval(() => {
+            if (currentStep >= steps.length - 1) {
+                stopAutoPlay();
+                return;
+            }
+            nextStep();
+        }, speed);
+    }
+}
+
+function stopAutoPlay() {
+    if (autoPlayInterval) {
+        clearInterval(autoPlayInterval);
+        autoPlayInterval = null;
+    }
+    document.getElementById('btnPlay').innerHTML = '⏵ Auto Play';
+}
+
+function resetSimulation() {
+    stopAutoPlay();
+    currentStep = -1;
+    document.getElementById('btnNext').disabled = false;
+    document.getElementById('btnPrev').disabled = true;
+    document.getElementById('stepNum').textContent = '0';
+
+    // Reset code highlights
+    document.querySelectorAll('.code-line').forEach(el => {
+        el.classList.remove('highlight-reader', 'highlight-writer');
+    });
+
+    // Reset semaphores
+    updateSem('semMutex', 'mutexValue', 'mutexStatus', 1);
+    updateSem('semWrt', 'wrtValue', 'wrtStatus', 1);
+
+    // Reset threads
+    ['R1', 'R2', 'W1'].forEach(t => {
+        document.getElementById(`thread${t}`).classList.remove('active');
+        document.getElementById(`status${t}`).textContent = 'Idle';
+    });
+
+    // Reset shared data
+    document.getElementById('sharedDataCard').className = 'shared-data-card';
+    document.getElementById('sharedDataValue').textContent = '10';
+    document.getElementById('dataAction').textContent = '\u00A0';
+    document.getElementById('dataAction').className = 'data-action';
+
+    // Reset arrows
+    document.getElementById('arrowR').className = 'flow-arrow';
+    document.getElementById('arrowW').className = 'flow-arrow';
+
+    // Reset variables
+    updateVar('varReadCount', 0, false);
+    updateVar('varSharedData', 10, false);
+    updateVar('varMutex', 1, false);
+    updateVar('varWrt', 1, false);
+
+    // Reset log
+    document.getElementById('logEntries').innerHTML = '';
+
+    // Reset explanation
+    document.getElementById('explanation').innerHTML = 'Press <strong>Next Step</strong> or <strong>Auto Play</strong> to begin the simulation of the Reader-Writer problem using POSIX semaphores.';
+}
+
+// Slider updates auto-play speed
+document.getElementById('speedSlider').addEventListener('input', () => {
+    if (autoPlayInterval) {
+        stopAutoPlay();
+        toggleAutoPlay();
+    }
+});
+
+// Init
+renderCode();
+document.getElementById('totalSteps').textContent = steps.length;
+</script>
+</body>
+</html>
